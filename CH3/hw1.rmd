@@ -1,0 +1,161 @@
+---
+title: "hw1"
+author: "GISH"
+date: "2019撟<b4>3<e6><9c><88>1<e6>"
+output:
+  word_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+##Question 1
+Using grid approximation, compute the posterior distribution for the probability of a birth being a boy. Assume a uniform prior probability. Which parameter value maximizes the posterior probability?
+
+```{r}
+library(tidyverse)
+birth1 <- c(1,0,0,0,1,1,0,1,0,1,0,0,1,1,0,1,1,0,0,0,1,0,0,0,1, 0,0,0,0,1,1,1,0,1,0,1,1,1,0,1,0,1,1,0,1,0,0,1,1,0, 1,0,0,0,0,0,0,0,1,1,0,1,0,0,1,0,0,0,1,0,0,1,1,1,1, 0,1,0,1,1,1,1,1,0,0,1,0,1,1,0,1,0,1,1,1,0,1,1,1,1)
+
+birth2 <- c(0,1,0,1,0,1,1,1,0,0,1,1,1,1,1,0,0,1,1,1,0,0,1,1,1, 0,1,1,1,0,1,1,1,0,1,0,0,1,1,1,1,0,0,1,0,1,1,1,1,1, 1,1,1,1,1,1,1,1,1,1,1,0,1,1,0,1,1,0,1,1,1,0,0,0,0, 0,0,1,0,0,0,1,1,0,0,1,0,0,1,1,0,0,0,1,1,1,0,0,0,0) 
+
+family_birth_data <- tibble(birth1,birth2)
+
+birth_grid_posterior <- tibble(p_grid = seq(from = 0, to = 1, length.out = 101), #100 grids
+prior = 1) %>%    
+mutate(likelihood = dbinom(sum(birth1) + sum(birth2), size = 200, prob = p_grid)) %>%
+# binomial distribution with boys as sucess trials
+mutate(unstandard_post = likelihood * prior) %>% 
+mutate(posterior = unstandard_post / sum(unstandard_post))
+birth_grid_posterior # show posterior dataframe
+```
+
+##Question 1 Plot
+
+```{r}
+#plotting
+birth_grid_posterior %>%
+ggplot(aes(x = p_grid, y = posterior)) +
+geom_point() +
+geom_line() + 
+labs(subtitle = "100 grids",
+x = "probability of a birth being a boy",
+y = "posterior probability") +
+theme(panel.grid = element_blank())
+```
+
+#Which parameter value maximizes the posterior probability? 
+
+```{r}
+birth_grid_posterior %>% summarise(Max_Vals_post = max(posterior), p_grid = which.max(posterior))
+```
+So the parameter is 56th p_grid, i.e. when probability of a birth being a boy =0.56 , it has highest posterior probability ~= 0.113
+
+##Question 2
+Using the sample() function, draw 10,000 random parameter values from the posterior distribution you calculated above. Use these samples to estimate the 50%, 89%, and 97% highest posterior density intervals. (hint: use mode_hdi() in tidybayes packages)
+
+```{r}
+samples <- sample(birth_grid_posterior$p_grid, #select p_grid (parameter values)
+prob = birth_grid_posterior$posterior, # posterior probability of each grid
+size = 1e4, # 10000 samples
+replace = T) # with replacement
+head(samples,20) #show first 20 samples
+
+samples <- tibble(samples = sample(birth_grid_posterior$p_grid, prob = birth_grid_posterior$posterior, size = 1e4, replace = T)) # sample tibblized
+glimpse(samples)
+
+
+library(tidybayes)
+mode_hdi(samples$samples, .width = c(.5, .89, .97))
+```
+
+##Question 2 Plot (50% hdpi)
+
+```{r}
+birth_grid_posterior %>%
+ggplot(aes(x = p_grid)) +
+geom_ribbon(data = birth_grid_posterior %>% filter(p_grid > mode_hdi(samples$samples, .width
+= .5)[, "ymin"] &
+p_grid < mode_hdi(samples$samples, .width = .5)[, "ymax"]),
+aes(ymin = 0, ymax = posterior),
+fill = "grey75") +
+geom_line(aes(y = posterior)) +
+labs(subtitle = "50% HPDI",
+x = "probability of a birth being a boy",
+y = "density")
+```
+
+##Question 3
+Use rbinom function to simulate 10,000 replicates of 200 births. You should end up with 10,000 numbers, each one a count of boys out of 200 births. Compare the distribution of predicted numbers of boys to the actual count in the data(111 boys out of 200 births). There are many good ways to visualize the simulations, but the dens command (part of the rethinking package) is probably the easiest way in this case. Does it look like the model ﬁts the data well? That is, does the distribution of predictions include the actual observation as a central, likely outcome?
+
+```{r}
+set.seed(123)
+d <- tibble(number_of_boys = rbinom(10000, size = 200, prob = .5))
+d %>%
+group_by(number_of_boys) %>% count() %>% mutate(proportion = n / nrow(d))
+```
+
+##Question 3 Plot
+
+```{r}
+d %>%
+ggplot(aes(x = number_of_boys)) + 
+geom_histogram(binwidth = 1, 
+center = 0,
+color = "grey75", 
+size = 1) + 
+scale_x_continuous("boy count", 
+breaks = seq(from = 0, to = 200, by = 20)) + 
+ylab("frequency") +
+coord_cartesian(xlim = 0:200) +
+theme(panel.grid = element_blank()) 
+```
+
+Compared to question 1 plot, it looks like the model fits the data well.
+Making the distribution of predictions include the acutal observation as a central likely outcome.
+
+##Question 4
+Now compare 10,000 counts of boys from 100 simulated ﬁrst borns only to the number of boys in the ﬁrst births, birth1. How does the model look in this light?
+
+##Question 4 Plot A: Simulation Plot
+```{r}
+d <- tibble(number_of_boys = rbinom(10000, size = 100, prob = .5))
+d %>%
+group_by(number_of_boys) %>% count() %>% mutate(proportion = n / nrow(d))
+
+d %>%
+ggplot(aes(x = number_of_boys)) + 
+geom_histogram(binwidth = 1, 
+center = 0,
+color = "grey75", 
+size = 1) + 
+scale_x_continuous("boy count", 
+breaks = seq(from = 0, to = 100, by = 10)) + 
+ylab("frequency") +
+coord_cartesian(xlim = 0:100) +
+theme(panel.grid = element_blank()) 
+```
+
+##Question 4 Plot B: Actual Observations Plot
+```{r}
+birth_grid_posteriorB <- tibble(p_grid = seq(from = 0, to = 1, length.out = 101), #100 grids
+prior = 1) %>%    
+mutate(likelihood = dbinom(sum(birth1), size = 100, prob = p_grid)) %>%
+# binomial distribution with boys as sucess trials
+mutate(unstandard_post = likelihood * prior) %>% 
+mutate(posterior = unstandard_post / sum(unstandard_post))
+birth_grid_posteriorB # show posterior dataframe
+
+birth_grid_posteriorB %>%
+ggplot(aes(x = p_grid, y = posterior)) +
+geom_point() +
+geom_line() + 
+labs(subtitle = "100 grids",
+x = "probability of a birth being a boy",
+y = "posterior probability") +
+theme(panel.grid = element_blank())
+sum(birth1)
+sum(birth2)
+```
+Because birth1's data are more evenly distributed(51 out of 100 childs are boys, p1 = 0.51) than birth2's(60 of 100 p2=0.6), simulated data(with p =0.5) are acutally more similar to birth1, as forementioned plot showed

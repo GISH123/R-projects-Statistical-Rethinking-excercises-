@@ -1,0 +1,195 @@
+---
+title: "hw2"
+author: "GISH"
+date: "2019撟<b4>3<e6><9c><88>15<e6>"
+output:
+  word_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Question 1
+
+By using the Howell1 data mentioned in the class, the weights listed below were recorded in the !Kung census, but heights were not recorded for these individuals. Provide predicted heights and 89% intervals (either HPDI or PI) for each of these individuals. That is, fill in the table below, using model-based predictions.
+
+
+```{r}
+library(rethinking)
+library(tidybayes)
+library(dplyr)
+
+data(Howell1)
+
+d <- Howell1
+d$weight_st <- (d$weight - mean(d$weight)) / sd(d$weight)
+model <- map(
+  alist(
+    height ~ dnorm(mu, sigma),
+    mu <- alpha + beta*weight_st,
+    alpha ~ dnorm(178,20),
+    beta ~ dlnorm(0,1),
+    sigma ~ dunif(0,50)
+  ),
+  data <- d
+)
+
+
+some_weights <- c(46.95, 43.72, 64.78, 32.59, 54.63)
+some_weights_standard <- (some_weights - mean(d$weight)) / sd(d$weight)
+simulated_heights <- sim(model, data = list(weight_st = some_weights_standard))
+
+simulated_heights_mean <- apply(X = simulated_heights, MARGIN = 2, FUN = mean)
+
+samples <- extract.samples(model)
+
+
+individualone <- rnorm(n = 10000, mean = samples$alpha + samples$beta*some_weights_standard[1], sd = samples$sigma)
+individualone_mean <- mean(individualone)
+individualone_hdi <- mode_hdi(individualone, .width=0.89)
+
+individualtwo <- rnorm(n = 10000, mean = samples$alpha + samples$beta*some_weights_standard[2], sd = samples$sigma)
+individualtwo_mean <- mean(individualtwo)
+individualtwo_hdi <- mode_hdi(individualtwo, .width=0.89)
+
+individualthree <- rnorm(n = 10000, mean = samples$alpha + samples$beta*some_weights_standard[3], sd = samples$sigma)
+individualthree_mean <- mean(individualthree)
+individualthree_hdi <- mode_hdi(individualthree, .width=0.89)
+
+individualfour <- rnorm(n = 10000, mean = samples$alpha + samples$beta*some_weights_standard[4], sd = samples$sigma)
+individualfour_mean <- mean(individualfour)
+individualfour_hdi <- mode_hdi(individualfour, .width=0.89)
+
+individualfive <- rnorm(n = 10000, mean = samples$alpha + samples$beta*some_weights_standard[5], sd = samples$sigma)
+individualfive_mean <- mean(individualfive)
+individualfive_hdi <- mode_hdi(individualfive, .width=0.89)
+
+listA = c(individualone_mean,individualtwo_mean ,individualthree_mean ,individualfour_mean ,individualfive_mean)
+listB = c(individualone_hdi$ymin,individualtwo_hdi$ymin,individualthree_hdi$ymin,individualfour_hdi$ymin,individualfive_hdi$ymin)
+listC = c(individualone_hdi$ymax,individualtwo_hdi$ymax,individualthree_hdi$ymax,individualfour_hdi$ymax,individualfive_hdi$ymax)
+
+answer.sheet = tibble(Individual = 1:5, Weight = some_weights, Expected_height = listA, lowerbound89hdpi = listB, upperbound89hdpi = listC)
+
+answer.sheet
+```
+
+
+## Question 2 
+Select out all the rows in the Howell1 data with ages below 18 years of age. If you do it
+right, you should end up with a new data frame with 192 rows in it. (a) Fit a linear regression to these data, using stan model. Present and interpret the estimates. For every 10 units of increase in weight, how much taller does the model predict a child gets?
+
+```{r}
+d2 = d %>% filter(age < 18)
+
+modelB <- map(
+  alist(
+    height ~ dnorm(mu, sigma),
+    mu <- alpha + beta*d2$weight,
+    alpha ~ dnorm(100,50),
+    beta ~ dlnorm(0,1),
+    sigma ~ dunif(0,50)
+  ),
+  data <- d2
+)
+#For every 10 units of increase in weight, how much taller does the model predict a child gets?
+precis(modelB)
+```
+
+We can see that the mean of beta is 2.72,that means on average, if there's 10 units of increase in weight a child gets 2.72* ln(10) ~= 6.263 taller
+
+
+(b) Plot the raw data, with height on the vertical axis and weight on the horizontal axis. Superimpose the stan predicted regression line and 89% HPDI for the mean. Also superimpose the 89% HPDI for predicted heights.
+```{r}
+library(MASS)
+
+weight_seq <- seq(from = 0 , to = 100, by = 0.5)
+
+#makes mean
+twoBsamples <- data.frame( mvrnorm(n = 10000, coef(modelB), vcov(modelB)) )
+simMu_func <- function(w){
+  twoBsamples$alpha + twoBsamples$beta * w
+}
+simMu <- sapply(X = weight_seq, FUN = simMu_func)
+simMu_mean <- apply(X = simMu, MARGIN = 2, FUN = mean)
+simMu_hpdi <- apply(X = simMu, MARGIN = 2, FUN = HPDI, prob = 0.89)
+
+#makes heights
+height_func <- function(w){
+  rnorm(n = nrow(twoBsamples), mean = simMu_func(w), sd = twoBsamples$sigma)
+}
+height_samples <- sapply(X = weight_seq, FUN = height_func)
+height_hpdi <- apply(X = height_samples, MARGIN = 2, FUN = HPDI, prob = .89)
+
+#plot
+plot(height ~ weight, data = d2, col = col.alpha(rangi2, .5))
+lines(x = weight_seq, y = simMu_mean)
+shade(object = simMu_hpdi, lim = weight_seq)
+shade(object = height_hpdi, lim = weight_seq)
+```
+(c) What aspects of the model fit concern you? Describe the kinds of assumption you would change, if
+any, to improve your model. You don’t have to write any new code. Just explain what the model
+appears to be doing a bad job of, and what you hypothesize would be a better model
+
+A: Because the data in the plot doesn’t seem to follow a straight line. First, weights seem to increase height faster, and at around 40 weight, the height gets more fixed.
+And we can see that as weight grows, the height’s increase are slowing down, that’s diminishing marginal increase. So we know the slope of the regression should not be a constant, and by diminishing increase, we hypothesize it to be a height = ln(weight) model.
+
+
+Question 3. Suppose a colleague of yours, who works on allometry, glances at the practice problems just above. (In Question 2). You colleague exclaims, “That’s silly. Everyone knows that it’s only the logarithm of body weight that scales with height!” Let’s take your colleague’s advice and see what happens.
+
+(a) Model the relationship between height (cm) and the natural logarithm of weight (log-kg). Use the entire Howell1 data frame, all 544 rows, adults and non-adults.Fit this model, using MCMC (stan)
+
+```{r}
+d3 <- Howell1
+modelC <- map(
+  alist(
+    height ~ dnorm(mean = mu, sd = sigma),
+    mu <- alpha + beta*log(weight),
+    alpha ~ dnorm(mean = 178, sd = 100),
+    beta ~ dnorm(mean = 0, sd = 100),
+    sigma ~ dunif(min = 0, max = 50)
+  ),
+  data = d3
+)
+
+weight_seq <- seq(from = 5 , to = 100, by = 0.5)
+
+# makes mean
+twoCsamples <- data.frame( mvrnorm(n = 10000, coef(modelC), vcov(modelC)) )
+simMu_func <- function(w){
+  twoCsamples$alpha + twoCsamples$beta *  log(w)
+}
+simMu <- sapply(X = weight_seq, FUN = simMu_func)
+simMu_mean <- apply(X = simMu, MARGIN = 2, FUN = mean)
+simMu_hpdi <- apply(X = simMu, MARGIN = 2, FUN = HPDI, prob = 0.97)
+
+# makes heights
+height_func <- function(w){
+  rnorm(n = nrow(twoCsamples), mean = simMu_func(w), sd = twoCsamples$sigma)
+}
+height_samples <- sapply(X = weight_seq, FUN = height_func)
+height_hpdi <- apply(X = height_samples, MARGIN = 2, FUN = HPDI, prob = 0.97)
+
+summary(simMu_mean)
+```
+
+Can you interpret the resulting estimates?
+
+First, the mean of alpha is -23.78,that means on average, if a person is 1 weight(which is impossible), the person would have -23.78 height on average.
+And beta on average is 47.08, that means on average if a person have 10 weight, the height should be -23.78+47.08*ln(10) ~= 84.626. Seems very logical based on fact.
+As the weight heavily increases, for example, 100 weight, we have average height = -23.78+47.08*ln(100) ~= 193.031. We can see the increase from weight 1 to 10 (9 increase) is 84.626 – (-23.78) = 108.406. But when weight increase from 10 to 100(90 increase), the increase in height is 193.031 -84.626 = 108.405, the same.
+Finally, there’s sigma, the deviation from average mean of height, is on average 5.13  , and it is based on uniform distribution , so 
+
+
+(b) Begin with this plot: plot(height~weight, data=Howell1, col=col.alpha(rangi2, 0.4))
+Then use samples from the approximate posterior of the model in (a) to superimpose on the plot: (1) the predicted mean height as a function of weight, (2) the 97% HPDI for the mean, and (3) the 97% HPDI for predicted heights.
+```{r}
+
+#plot
+plot(height ~ weight, data = d3, col = col.alpha(rangi2, 0.4))
+lines(x = weight_seq, y = simMu_mean)
+shade(object = simMu_hpdi, lim = weight_seq)
+shade(object = height_hpdi, lim = weight_seq)
+
+```
