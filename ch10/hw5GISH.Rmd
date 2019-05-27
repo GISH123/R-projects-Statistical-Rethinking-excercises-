@@ -1,0 +1,118 @@
+---
+title: "hw5"
+author: "GISH"
+date: "2019/5/14"
+output:
+  word_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(rethinking)
+library(MASS)
+data(eagles)
+d<-eagles
+```
+
+# (a)Fit the model above to the eagles data, using rstan. Is the quadratic approximation okay?
+
+```{r}
+d$pd = ifelse(d$P == "L",1,0) #pirate body dummy
+d$vd = ifelse(d$V == "L",1,0) # victim body dummy
+d$ad = ifelse(d$A == "A",1,0) #pirate adult dummy
+
+
+m <- map(
+  alist(
+    y ~ dbinom(n,p),
+    logit(p) <- a + bpd*pd + bvd*vd + bad*ad,
+    a ~ dnorm(0,10),
+    c(bpd,bvd,bad) ~ dnorm( 0 , 5)
+  ), data=d )
+
+
+dstan <- d
+
+mstan <- map2stan( m , data=dstan , iter=1e4 , warmup=1000 )
+
+precis(m)
+precis(mstan)
+
+compare(mstan,m)
+
+```
+
+警告訊息是因為新版rethinking package的關係，但事實上mstan與m用的模型是一樣的
+從模型上可以看出兩個模型的參數估計值幾乎沒差多少
+且從compare方法也可以看出，從資訊值來看兩者的資訊含量其實差不多，兩者所佔的weight幾乎接近0.5
+所以二項式接近模型(m)在這邊是可以用的模型
+
+
+```{r}
+pairs(m)
+pairs(mstan)
+```
+
+但從圖形上可以看出其實stan做出來的估計，會呈現出較偏斜的分配(bpd,bvd)，可能相較於使用二項式分配，較能呈現真實分布情況
+
+
+# (b) Now interpret the estimates.Then plot the posterior predictions. Compute and
+# display both (1) the predicted probability of successand its 89% interval for each
+# row(i) in the data, as well as (2) the predicted success count and its 89% interval.
+# What different information does each type of posterior prediction provide?
+
+由mstan的模型來看
+bpd 之mean 為4.64    表當pirate的身體為large時，log(p/(1-p))平均來說會增加4.64 =>即p會增加約0.9904%
+bvd          -5.04   表當victim的身體為large時，log(p/(1-p))平均來說會減少5.04 => 以此類推 p 會增加約0.0064%
+bad          1.13    表當pirate的年齡為Adult時，log(p/(1-p))平均來說會增加1.13 => p會增加0.753%
+
+
+```{r}
+
+p <- link(mstan)
+y <- sim(mstan)
+
+p.mean <- apply(X = p, MARGIN = 2, FUN = mean)
+p.PI <- apply(X = p, MARGIN = 2, FUN = PI)
+y.mean <- apply(X = y, MARGIN = 2, FUN = mean)
+y.PI <- apply(X = y, MARGIN = 2, FUN = PI)
+
+d$proportion <- d$y / d$n
+plot(d$proportion, col='red', ylab="predicted probability of success") #紅為模擬出來的比例
+axis(1, at=1:8, labels=c( "111","110","101","100","011","010","001","000" ))
+points( 1:8 , p.mean ) #黑為預測出來的比例
+for ( i in 1:8 ) lines( c(i, i), p.PI[,i] )
+
+plot(d$y, col='red', ylab="number of successes") #紅為模擬出來的比例
+axis(1, at=1:8, labels=c( "111","110","101","100","011","010","001","000" ))
+points( 1:8 , y.mean ) #黑為預測出來的比例
+for ( i in 1:8 ) lines( c(i, i), y.PI[,i] )
+```
+差別就是一個是比例，一個是count成功的數量
+所以count成功數量的模型，其y值的大小還會受到number of trails即n的影響
+n越大，成功的次數當然越多
+
+# (c)Now try to improve the model. Consider an interaction between the pirate’s size
+# and age (immature or adult). Compare this model to the previous one, using
+# WAIC to interpret.
+
+```{r}
+
+mstan.i <- map2stan(
+  alist(
+    y ~ dbinom(n, p),
+    logit(p) <-  a + bpd*pd + bvd*vd + bad*ad + bpa*pd*ad,
+    a ~ dnorm(0,10),
+    c(bpd,bvd,bad,bpa) ~ dnorm( 0 , 5)
+  ),
+  data = dstan, warmup = 1000, iter = 1e4
+)
+
+compare(mstan, mstan.i)
+precis(mstan.i)
+precis(mstan)
+```
+
+由compare可看出mstan.i的資訊含量較高，其weight佔了0.91
+再由precis可看出，其實pirate的年齡大小(bad)在mstan.i的模型較大，代表其實pirate的年齡大小其實算一個影響因素，但是因為交互作用的影響，即pirate 的體積，影響了，年齡對於掠奪成功率的影響，導致年齡在沒有交互作用的模型下(mstan)其平均只有1.13(相較於交互作用的模型平均3.41)
